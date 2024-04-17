@@ -1,0 +1,88 @@
+version: "3.8"
+
+# environment
+x-env-db: &db-env
+  POSTGRES_DB: "postgres"
+  POSTGRES_PASSWORD: "password"
+  POSTGRES_USER: "root"
+
+x-volumes: &app-env
+  ALLOWED_HOSTS: "*"
+  JWT_SECRET_KEY: "fastapi_boilerplate_secret_key"
+
+  DB_URL: "postgresql+psycopg2://root:password@db:5432/postgres"
+  DEBUG: "True"
+
+  <<: *db-env
+
+services:
+  server:
+    build:
+      context: ./
+      dockerfile: ./Dockerfile
+    image: nayanbiswas/fastapi_boilerplate_server:latest
+    container_name: fastapi_boilerplate_server
+    command: "uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
+    ports:
+      - 8000:8000
+    environment:
+      <<: *app-env
+    # env_file: .env
+    volumes:
+      - ./:/code
+    depends_on:
+      - db
+      - redis
+    networks:
+      - fastapi_boilerplate_tier
+
+  worker:
+    image: nayanbiswas/fastapi_boilerplate_server:latest
+    container_name: fastapi_boilerplate_worker
+    restart: unless-stopped
+    command:
+      "watchmedo auto-restart --directory=./ --pattern=*.py --recursive -- \
+      celery --app=worker.main:celery_app worker --beat --loglevel=debug"
+    environment:
+      <<: *app-env
+    volumes:
+      - ./:/code
+    depends_on:
+      - db
+      - redis
+    networks:
+      - fastapi_boilerplate_tier
+
+  db:
+    image: postgres:16
+    container_name: fastapi_boilerplate_db
+    restart: unless-stopped
+    ports:
+      - 5432:5432
+    expose:
+      - 5432
+    networks:
+      - fastapi_boilerplate_tier
+    volumes:
+      - fastapi_boilerplate_db:/var/lib/postgresql/data
+    environment:
+      <<: *db-env
+
+  redis:
+    image: redis:7
+    container_name: fastapi_boilerplate_redis
+    restart: unless-stopped
+    networks:
+      - fastapi_boilerplate_tier
+    volumes:
+      - fastapi_boilerplate_redis:/data
+
+volumes:
+  fastapi_boilerplate_db:
+    driver: local
+  fastapi_boilerplate_redis:
+    driver: local
+
+networks:
+  fastapi_boilerplate_tier:
+    driver: bridge
