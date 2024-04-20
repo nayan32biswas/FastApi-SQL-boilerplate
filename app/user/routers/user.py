@@ -1,9 +1,10 @@
 from fastapi import APIRouter
 
 from app.core.deps.auth import CurrentUser
-from app.core.deps.db import CurrentSession
+from app.core.deps.db import SessionDep
 from app.core.utils.model import update_model
-from app.user.schemas.user import UserProfileIn, UserProfileOut
+
+from ..schemas.user import UserProfileIn, UserProfileOut
 
 router = APIRouter(prefix="/user")
 
@@ -18,7 +19,7 @@ async def get_profile(
 @router.put("/profile", response_model=UserProfileOut)
 async def update_profile(
     user: CurrentUser,
-    session: CurrentSession,
+    session: SessionDep,
     data: UserProfileIn,
 ):
     user = update_model(user, data)

@@ -1,8 +1,8 @@
 FROM python:3.11
 
-ARG YOUR_ENV=dev
+ARG ENV=dev
 
-ENV YOUR_ENV=${YOUR_ENV} \
+ENV ENV=${ENV} \
   PYTHONFAULTHANDLER=1 \
   PYTHONUNBUFFERED=1 \
   PYTHONHASHSEED=random \
@@ -13,9 +13,15 @@ ENV YOUR_ENV=${YOUR_ENV} \
 RUN pip install "poetry"
 
 WORKDIR /code
-
 COPY pyproject.toml *.lock /code/
+
 RUN poetry config virtualenvs.create false \
-  &&  poetry install $(test "$YOUR_ENV" == production && echo "--no-dev") --no-interaction --no-ansi
+  &&  poetry install $(test "$ENV" == prod && echo "--no-dev") --no-interaction --no-ansi
+
+# RUN if [[ "$ENV" == "prod" ]]; then \
+#         poetry install --no-dev --no-interaction --no-ansi; \
+#     else \
+#         poetry install --no-interaction --no-ansi; \
+#     fi
 
 ADD . /code

@@ -35,9 +35,9 @@ async def fixture_client() -> AsyncGenerator[AsyncClient, None]:
         yield client
 
 
-@pytest_asyncio.fixture(name="default_user", scope="function")
-async def fixture_default_user(session: Session) -> User:
-    return await get_or_create_default_user(session)
+@pytest.fixture(name="default_user", scope="function")
+def fixture_default_user(session: Session) -> User:
+    return get_or_create_default_user(session)
 
 
 @pytest.fixture(name="default_user_headers", scope="function")

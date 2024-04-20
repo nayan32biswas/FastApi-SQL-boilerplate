@@ -4,7 +4,7 @@ from secrets import token_hex
 import sqlalchemy as sa
 from sqlalchemy.orm import Session, joinedload
 
-from app.core import constants
+from app.core.config import FORGOT_PASSWORD_EXPIRE_MINUTES
 from app.core.db.manager import BaseManager
 from app.user.models import ForgotPassword
 
@@ -14,7 +14,7 @@ class ForgotPasswordManager(BaseManager):
         super().__init__(db=db, model=ForgotPassword)
 
     def create(self, user_id: int, email: str):
-        expire_at = datetime.now() + timedelta(minutes=constants.FORGOT_PASSWORD_EXPIRE_MINUTES)
+        expire_at = datetime.now() + timedelta(minutes=FORGOT_PASSWORD_EXPIRE_MINUTES)
 
         forgot_password_instance = ForgotPassword(
             user_id=user_id,

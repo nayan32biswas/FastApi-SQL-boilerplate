@@ -24,6 +24,7 @@ class User(Base, TimestampMixin):
     )
 
     forgot_passwords = relationship("ForgotPassword", back_populates="user")
+    uploaded_files = relationship("UploadedFile", back_populates="user")
 
 
 class ForgotPassword(Base, TimestampMixin):

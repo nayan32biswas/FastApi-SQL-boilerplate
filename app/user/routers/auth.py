@@ -1,21 +1,28 @@
 from datetime import datetime
 
 import sqlalchemy as sa
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, status
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session, joinedload
 
-from app.core import constants
 from app.core.auth import PasswordUtils
 from app.core.auth.jwt import JWTProvider
-from app.core.config import settings
+from app.core.config import FORGOT_PASSWORD_PATH, settings
 from app.core.deps.auth import CurrentUser
-from app.core.deps.db import CurrentSession
+from app.core.deps.db import SessionDep
+from app.core.exceptions import ObjectNotFoundException
 from app.core.utils.string import generate_rstr
-from app.user.models import ForgotPassword, User
-from app.user.models_manager.forgot_password import ForgotPasswordManager
-from app.user.models_manager.user import UserManager
-from app.user.schemas.auth import (
+from worker.tasks.email import send_email
+
+from ..exception import (
+    EmailExistsException,
+    ForgotPasswordTokenException,
+    InvalidCredentialsException,
+)
+from ..models import ForgotPassword, User
+from ..models_manager.forgot_password import ForgotPasswordManager
+from ..models_manager.user import UserManager
+from ..schemas.auth import (
     ForgotPasswordRequestIn,
     ForgotPasswordResetIn,
     LoginIn,
@@ -23,7 +30,6 @@ from app.user.schemas.auth import (
     RefreshTokenIn,
     RegistrationIn,
 )
-from worker.tasks.email import send_email
 
 router = APIRouter(
     prefix="/auth",
@@ -33,13 +39,13 @@ router = APIRouter(
 @router.post("/registration", status_code=status.HTTP_201_CREATED)
 async def registration(
     data: RegistrationIn,
-    session: CurrentSession,
+    session: SessionDep,
 ):
     user_manager = UserManager(session)
     user = user_manager.get_user_by_email(data.email)
 
     if user:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="User exists")
+        raise EmailExistsException(message="User with email exists")
 
     user_manager = UserManager(session)
 
@@ -56,10 +62,10 @@ def handle_login(session: Session, email: str, password: str):
     user = user_manager.get_user_by_email(email)
 
     if not user:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="User not found")
+        raise InvalidCredentialsException
 
     if not PasswordUtils.verify_password(password, user.hashed_password):
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid password")
+        raise InvalidCredentialsException
 
     access_token = JWTProvider.create_access_token(id=user.id, rstr="temp")
     refresh_token = JWTProvider.create_refresh_token(id=user.id, rstr="temp")
@@ -71,7 +77,7 @@ def handle_login(session: Session, email: str, password: str):
 
 @router.post("/swagger-login")
 async def swagger_login(
-    session: CurrentSession,
+    session: SessionDep,
     form_data: OAuth2PasswordRequestForm = Depends(),
 ):
     return handle_login(session, form_data.username, form_data.password)
@@ -80,7 +86,7 @@ async def swagger_login(
 @router.post("/login")
 async def token_login(
     data: LoginIn,
-    session: CurrentSession,
+    session: SessionDep,
 ):
     token = handle_login(session, data.email, data.password)
 
@@ -89,7 +95,7 @@ async def token_login(
 
 @router.post("/refresh-token")
 async def refresh_token(
-    session: CurrentSession,
+    session: SessionDep,
     data: RefreshTokenIn,
 ):
     refresh_token_payload = JWTProvider.decode_refresh_token(data.refresh_token)
@@ -99,10 +105,7 @@ async def refresh_token(
     user = user_manager.get_user_by_id(refresh_token_payload.id)
 
     if not user:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid refresh token or user is not active",
-        )
+        raise ObjectNotFoundException(message="Invalid user token")
 
     access_token = JWTProvider.create_access_token(id=user.id, rstr="temp")
 
@@ -112,14 +115,14 @@ async def refresh_token(
 @router.post("/change-password")
 async def change_password(
     user: CurrentUser,
-    session: CurrentSession,
+    session: SessionDep,
     data: PasswordChangeIn,
 ):
     old_password = data.old_password
     new_password = data.new_password
 
     if not PasswordUtils.verify_password(old_password, user.hashed_password):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Invalid password")
+        raise InvalidCredentialsException(message="Invalid password")
 
     user.hashed_password = PasswordUtils.get_hashed_password(new_password)
     session.commit()
@@ -129,7 +132,7 @@ async def change_password(
 
 @router.post("/forgot-password-request")
 async def forgot_password_request(
-    session: CurrentSession,
+    session: SessionDep,
     data: ForgotPasswordRequestIn,
 ):
     user = User.get_obj_or_404(session=session, email=data.email)
@@ -137,7 +140,9 @@ async def forgot_password_request(
     forgot_password_manager = ForgotPasswordManager(db=session)
     forgot_password_instance = forgot_password_manager.create(user_id=user.id, email=data.email)
 
-    forgot_password_url = f"{settings.API_HOST}/{constants.FORGOT_PASSWORD_PATH}?token={forgot_password_instance.token}"
+    forgot_password_url = (
+        f"{settings.API_HOST}/{FORGOT_PASSWORD_PATH}?token={forgot_password_instance.token}"
+    )
 
     send_email.delay(
         to=[user.email],
@@ -152,7 +157,7 @@ async def forgot_password_request(
 
 @router.post("/forgot-password-reset")
 async def forgot_password_reset(
-    session: CurrentSession,
+    session: SessionDep,
     data: ForgotPasswordResetIn,
 ):
     stmt = (
@@ -165,10 +170,10 @@ async def forgot_password_reset(
     user = forgot_password_instance.user
 
     if forgot_password_instance.is_used:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Token already used")
+        raise ForgotPasswordTokenException(message="Token already used")
 
     if forgot_password_instance.expire_at < datetime.now():
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Token is expired")
+        raise ForgotPasswordTokenException(message="Token is expired")
 
     forgot_password_instance.is_used = True
     forgot_password_instance.used_at = datetime.now()

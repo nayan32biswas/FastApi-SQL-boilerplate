@@ -1,9 +1,10 @@
 from typing import List, Optional
 
 import sqlalchemy as sa
-from fastapi import HTTPException, status
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column
 from typing_extensions import Self
+
+from app.core.exceptions import ObjectNotFoundException
 
 
 class Base(DeclarativeBase):
@@ -28,6 +29,6 @@ class Base(DeclarativeBase):
         obj = cls.find_first(session, **kwargs)
 
         if not obj:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Object not found")
+            raise ObjectNotFoundException(message="Object not found")
 
         return obj

@@ -10,7 +10,7 @@ default_user_full_name = "Test User"
 default_user_password = "test-pass"
 
 
-async def get_or_create_default_user(session: Session):
+def get_or_create_default_user(session: Session):
     stmt = sa.select(User).where(User.email == default_user_email)
     default_user = session.scalars(stmt).first()
 

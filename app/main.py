@@ -1,42 +1,40 @@
 import logging
 import traceback
 
-from fastapi import Depends, FastAPI, Request, status
+from fastapi import FastAPI, Request, status
 from fastapi.middleware import Middleware
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+from app.config.routers import router as config_router
 from app.core.config import settings
-from app.core.deps.logging import Logging
 from app.core.exceptions import CustomException
-from app.core.routers import router as common_router
 from app.user.routers import router as user_router
 
 logger = logging.getLogger(__name__)
 
 
-def init_routers(app_: FastAPI) -> None:
-    app_.include_router(common_router.router, tags=["Default"])
-    app_.include_router(user_router)
+def init_routers(fastapi_app: FastAPI) -> None:
+    fastapi_app.include_router(config_router, tags=["Config"])
+    fastapi_app.include_router(user_router, tags=["User"])
 
 
-def init_listeners(app_: FastAPI) -> None:
-    # Exception handler
-    @app_.exception_handler(CustomException)
+def init_listeners(fastapi_app: FastAPI) -> None:
+    @fastapi_app.exception_handler(CustomException)
     async def custom_exception_handler(request: Request, exc: CustomException):
         return JSONResponse(
             status_code=exc.code,
             content={"error_code": exc.error_code, "message": exc.message},
         )
 
-    @app_.exception_handler(Exception)
+    @fastapi_app.exception_handler(Exception)
     async def global_exception_handler(request: Request, exc: Exception):
         traceback_str = traceback.format_exc()
         logger.error(traceback_str)
 
         if settings.DEBUG:
             return JSONResponse(
-                status_code=status.HTTP_400_BAD_REQUEST,
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 content={
                     "error_code": "INTERNAL_SERVER_ERROR",
                     "message": traceback_str,
@@ -50,19 +48,6 @@ def init_listeners(app_: FastAPI) -> None:
                 "message": "Internal Server Error",
             },
         )
-
-
-def on_auth_error(request: Request, exc: Exception):
-    status_code, error_code, message = 401, None, str(exc)
-    if isinstance(exc, CustomException):
-        status_code = int(exc.code)
-        error_code = exc.error_code
-        message = exc.message
-
-    return JSONResponse(
-        status_code=status_code,
-        content={"error_code": error_code, "message": message},
-    )
 
 
 def make_middleware() -> list[Middleware]:
@@ -79,18 +64,17 @@ def make_middleware() -> list[Middleware]:
 
 
 def create_app() -> FastAPI:
-    app_ = FastAPI(
-        title="Neu",
-        description="Neu API",
+    fastapi_app = FastAPI(
+        title="FastAPI SQL Boilerplate",
+        description="FastAPI SQL Boilerplate API",
         version="1.0.0",
-        docs_url=None if settings.ENV == "production" else "/docs",
-        redoc_url=None if settings.ENV == "production" else "/redoc",
-        dependencies=[Depends(Logging)],
+        docs_url=None if settings.ENV == "prod" else "/docs",
+        redoc_url=None if settings.ENV == "prod" else "/redoc",
         middleware=make_middleware(),
     )
-    init_routers(app_=app_)
-    init_listeners(app_=app_)
-    return app_
+    init_routers(fastapi_app=fastapi_app)
+    init_listeners(fastapi_app=fastapi_app)
+    return fastapi_app
 
 
 app = create_app()
